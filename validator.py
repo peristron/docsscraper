@@ -37,6 +37,8 @@ if "audit_results" not in st.session_state:
     st.session_state.audit_results = None
 if "crawl_running" not in st.session_state:
     st.session_state.crawl_running = False
+if "crawl_complete" not in st.session_state:
+    st.session_state.crawl_complete = False
 
 # Title and intro
 st.title("🔍 D2L Documentation Scraper Validator")
@@ -58,7 +60,7 @@ with st.sidebar:
         help="Delay between requests to be respectful to the server"
     )
     
-    max_pages = st.number_input(
+    max_pages_input = st.number_input(
         "Max Pages (0 = unlimited)",
         min_value=0,
         max_value=1000,
@@ -66,7 +68,7 @@ with st.sidebar:
         help="Limit for testing. Set to 0 for full site audit."
     )
     
-    max_pages = None if max_pages == 0 else max_pages
+    max_pages = None if max_pages_input == 0 else max_pages_input
     
     st.divider()
     
@@ -100,12 +102,10 @@ class SiteAuditor:
         )
     
     def log(self, message):
-        """Log message via callback"""
         if self.status_callback:
             self.status_callback(message)
     
     def update_progress(self, current, total, url=""):
-        """Update progress via callback"""
         if self.progress_callback:
             self.progress_callback(current, total, url)
     
@@ -251,7 +251,6 @@ class SiteAuditor:
             url = queue.pop(0)
             parent = self.url_map[url][0] if self.url_map[url] else None
             
-            # Update progress
             self.update_progress(len(self.pages) + 1, total_estimate, url)
             
             page_data, links = self.crawl_page(url, parent)
@@ -290,7 +289,6 @@ def save_results(results):
     """Save audit results to files"""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     
-    # Summary
     summary = {
         "crawl_timestamp": timestamp,
         "base_url": BASE_URL,
@@ -303,11 +301,9 @@ def save_results(results):
     summary_file = OUTPUT_DIR / f"summary_{timestamp}.json"
     summary_file.write_text(json.dumps(summary, indent=2))
     
-    # Full pages
     pages_file = OUTPUT_DIR / f"pages_{timestamp}.json"
     pages_file.write_text(json.dumps(results["pages"], indent=2))
     
-    # Routes
     all_routes = []
     for page in results["pages"]:
         for method, path in page.get("routes", []):
@@ -321,7 +317,6 @@ def save_results(results):
     routes_file = OUTPUT_DIR / f"routes_{timestamp}.json"
     routes_file.write_text(json.dumps(all_routes, indent=2))
     
-    # Expected coverage
     comparison = {
         "expected_minimum_pages": results["total_pages"],
         "expected_minimum_routes": results["total_routes"],
@@ -341,8 +336,8 @@ def save_results(results):
     }
 
 
-def display_results(results):
-    """Display results in Streamlit"""
+def display_results(results, key_prefix=""):
+    """Display results in Streamlit with unique keys"""
     
     st.success(f"✅ Audit Complete! Scraped {results['total_pages']} pages in {results['elapsed_time']:.1f}s")
     
@@ -365,103 +360,110 @@ def display_results(results):
     with tab1:
         st.header("Overview")
         
-        # Category breakdown
         col_a, col_b = st.columns(2)
         
         with col_a:
             st.subheader("Pages by Category")
-            category_df = pd.DataFrame([
-                {"Category": cat, "Pages": count}
-                for cat, count in results["categories"].items()
-            ]).sort_values("Pages", ascending=False)
-            
-            fig = px.bar(
-                category_df,
-                x="Category",
-                y="Pages",
-                title="Distribution of Pages by Category"
-            )
-            st.plotly_chart(fig, use_container_width=True, key="chart_category_bar")
+            if results["categories"]:
+                category_df = pd.DataFrame([
+                    {"Category": cat, "Pages": count}
+                    for cat, count in results["categories"].items()
+                ]).sort_values("Pages", ascending=False)
+                
+                fig = px.bar(
+                    category_df,
+                    x="Category",
+                    y="Pages",
+                    title="Distribution of Pages by Category"
+                )
+                st.plotly_chart(fig, use_container_width=True, key=f"{key_prefix}chart_category_bar")
+            else:
+                st.info("No categories found")
         
         with col_b:
             st.subheader("Content Size Distribution")
-            sizes = [p["content_length"] for p in results["pages"]]
-            
-            fig = px.histogram(
-                x=sizes,
-                nbins=30,
-                title="Page Content Length Distribution",
-                labels={"x": "Content Length (chars)", "y": "Count"}
-            )
-            st.plotly_chart(fig, use_container_width=True, key="chart_content_histogram")
+            if results["pages"]:
+                sizes = [p["content_length"] for p in results["pages"]]
+                
+                fig = px.histogram(
+                    x=sizes,
+                    nbins=30,
+                    title="Page Content Length Distribution",
+                    labels={"x": "Content Length (chars)", "y": "Count"}
+                )
+                st.plotly_chart(fig, use_container_width=True, key=f"{key_prefix}chart_content_histogram")
+            else:
+                st.info("No pages found")
         
         # Top pages
         st.subheader("Top 10 Pages by Content Size")
-        top_pages = sorted(results["pages"], key=lambda x: x["content_length"], reverse=True)[:10]
-        
-        top_df = pd.DataFrame([
-            {
-                "Title": p["title"][:50],
-                "Category": p["category"],
-                "Size (chars)": f"{p['content_length']:,}",
-                "Routes": p["routes_found"],
-                "URL": p["url"]
-            }
-            for p in top_pages
-        ])
-        
-        st.dataframe(top_df, use_container_width=True, hide_index=True, key="df_top_pages")
+        if results["pages"]:
+            top_pages = sorted(results["pages"], key=lambda x: x["content_length"], reverse=True)[:10]
+            
+            top_df = pd.DataFrame([
+                {
+                    "Title": p["title"][:50],
+                    "Category": p["category"],
+                    "Size (chars)": f"{p['content_length']:,}",
+                    "Routes": p["routes_found"],
+                    "URL": p["url"]
+                }
+                for p in top_pages
+            ])
+            
+            st.dataframe(top_df, use_container_width=True, hide_index=True, key=f"{key_prefix}df_top_pages")
+        else:
+            st.info("No pages found")
     
     with tab2:
         st.header("All Scraped Pages")
         
-        # Filters
-        col_f1, col_f2 = st.columns(2)
-        
-        with col_f1:
-            selected_category = st.selectbox(
-                "Filter by Category",
-                ["All"] + sorted(results["categories"].keys()),
-                key="filter_category_pages"
-            )
-        
-        with col_f2:
-            min_size = st.number_input(
-                "Minimum Content Size",
-                min_value=0,
-                value=0,
-                step=100,
-                key="filter_min_size"
-            )
-        
-        # Filter pages
-        filtered_pages = results["pages"]
-        if selected_category != "All":
-            filtered_pages = [p for p in filtered_pages if p["category"] == selected_category]
-        if min_size > 0:
-            filtered_pages = [p for p in filtered_pages if p["content_length"] >= min_size]
-        
-        st.write(f"Showing {len(filtered_pages)} pages")
-        
-        # Display as table
-        pages_df = pd.DataFrame([
-            {
-                "Title": p["title"][:60],
-                "Category": p["category"],
-                "Size": f"{p['content_length']:,}",
-                "Words": f"{p['word_count']:,}",
-                "Routes": p["routes_found"],
-                "URL": p["url"]
-            }
-            for p in filtered_pages
-        ])
-        
-        st.dataframe(pages_df, use_container_width=True, hide_index=True, height=400, key="df_all_pages")
+        if results["pages"]:
+            col_f1, col_f2 = st.columns(2)
+            
+            with col_f1:
+                selected_category = st.selectbox(
+                    "Filter by Category",
+                    ["All"] + sorted(results["categories"].keys()),
+                    key=f"{key_prefix}filter_category_pages"
+                )
+            
+            with col_f2:
+                min_size = st.number_input(
+                    "Minimum Content Size",
+                    min_value=0,
+                    value=0,
+                    step=100,
+                    key=f"{key_prefix}filter_min_size"
+                )
+            
+            filtered_pages = results["pages"]
+            if selected_category != "All":
+                filtered_pages = [p for p in filtered_pages if p["category"] == selected_category]
+            if min_size > 0:
+                filtered_pages = [p for p in filtered_pages if p["content_length"] >= min_size]
+            
+            st.write(f"Showing {len(filtered_pages)} pages")
+            
+            pages_df = pd.DataFrame([
+                {
+                    "Title": p["title"][:60],
+                    "Category": p["category"],
+                    "Size": f"{p['content_length']:,}",
+                    "Words": f"{p['word_count']:,}",
+                    "Routes": p["routes_found"],
+                    "URL": p["url"]
+                }
+                for p in filtered_pages
+            ])
+            
+            st.dataframe(pages_df, use_container_width=True, hide_index=True, height=400, key=f"{key_prefix}df_all_pages")
+        else:
+            st.info("No pages found")
     
     with tab3:
         st.header("API Routes Found")
         
-        # Collect all routes
         all_routes = []
         for page in results["pages"]:
             for method, path in page.get("routes", []):
@@ -475,7 +477,6 @@ def display_results(results):
         if all_routes:
             st.write(f"Total API Routes: {len(all_routes)}")
             
-            # Method breakdown
             method_counts = defaultdict(int)
             for route in all_routes:
                 method_counts[route["Method"]] += 1
@@ -488,7 +489,7 @@ def display_results(results):
                     {"Method": method, "Count": count}
                     for method, count in method_counts.items()
                 ])
-                st.dataframe(method_df, hide_index=True, key="df_method_counts")
+                st.dataframe(method_df, hide_index=True, key=f"{key_prefix}df_method_counts")
             
             with col_r2:
                 fig = px.pie(
@@ -497,14 +498,13 @@ def display_results(results):
                     names="Method",
                     title="Routes by HTTP Method"
                 )
-                st.plotly_chart(fig, use_container_width=True, key="chart_method_pie")
+                st.plotly_chart(fig, use_container_width=True, key=f"{key_prefix}chart_method_pie")
             
-            # Filter routes
             st.subheader("All Routes")
             selected_method = st.selectbox(
                 "Filter by Method",
                 ["All"] + sorted(method_counts.keys()),
-                key="filter_method_routes"
+                key=f"{key_prefix}filter_method_routes"
             )
             
             filtered_routes = all_routes
@@ -512,7 +512,7 @@ def display_results(results):
                 filtered_routes = [r for r in all_routes if r["Method"] == selected_method]
             
             routes_df = pd.DataFrame(filtered_routes)
-            st.dataframe(routes_df, use_container_width=True, hide_index=True, height=400, key="df_all_routes")
+            st.dataframe(routes_df, use_container_width=True, hide_index=True, height=400, key=f"{key_prefix}df_all_routes")
         else:
             st.warning("No API routes found")
     
@@ -528,11 +528,11 @@ def display_results(results):
                     {
                         "URL": f["url"],
                         "Status/Error": f.get("status") or f.get("error", "Unknown"),
-                        "Parent": f.get("parent", "N/A")[:50] if f.get("parent") else "N/A"
+                        "Parent": (f.get("parent", "N/A")[:50] if f.get("parent") else "N/A")
                     }
                     for f in results["failed_urls"]
                 ])
-                st.dataframe(failed_df, use_container_width=True, hide_index=True, key="df_failed")
+                st.dataframe(failed_df, use_container_width=True, hide_index=True, key=f"{key_prefix}df_failed")
             else:
                 st.success("No failed URLs!")
         
@@ -546,7 +546,7 @@ def display_results(results):
                     }
                     for s in results["skipped_urls"]
                 ])
-                st.dataframe(skipped_df, use_container_width=True, hide_index=True, key="df_skipped")
+                st.dataframe(skipped_df, use_container_width=True, hide_index=True, key=f"{key_prefix}df_skipped")
             else:
                 st.info("No skipped URLs")
     
@@ -555,7 +555,7 @@ def display_results(results):
         
         st.write("Save audit results to files for comparison with your main app.")
         
-        if st.button("💾 Save All Reports", type="primary", key="btn_save_reports"):
+        if st.button("💾 Save All Reports", type="primary", key=f"{key_prefix}btn_save_reports"):
             with st.spinner("Saving reports..."):
                 saved_files = save_results(results)
                 
@@ -563,53 +563,50 @@ def display_results(results):
                 
                 for name, filepath in saved_files.items():
                     st.write(f"**{name.title()}:** `{filepath}`")
-                
-                # Offer downloads
-                st.divider()
-                st.subheader("Download Reports")
-                
-                # Summary JSON
-                summary_json = json.dumps({
-                    "total_pages": results["total_pages"],
-                    "total_routes": results["total_routes"],
-                    "categories": results["categories"],
-                    "elapsed_time": results["elapsed_time"]
-                }, indent=2)
-                
-                st.download_button(
-                    "📄 Download Summary (JSON)",
-                    data=summary_json,
-                    file_name=f"scrape_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-                    mime="application/json",
-                    key="download_summary"
-                )
-                
-                # Full pages CSV
-                pages_csv = pd.DataFrame([
-                    {
-                        "URL": p["url"],
-                        "Title": p["title"],
-                        "Category": p["category"],
-                        "Content Length": p["content_length"],
-                        "Routes Found": p["routes_found"]
-                    }
-                    for p in results["pages"]
-                ]).to_csv(index=False)
-                
-                st.download_button(
-                    "📊 Download Pages (CSV)",
-                    data=pages_csv,
-                    file_name=f"scrape_pages_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                    mime="text/csv",
-                    key="download_pages_csv"
-                )
+        
+        st.divider()
+        st.subheader("Download Reports")
+        
+        summary_json = json.dumps({
+            "total_pages": results["total_pages"],
+            "total_routes": results["total_routes"],
+            "categories": results["categories"],
+            "elapsed_time": results["elapsed_time"]
+        }, indent=2)
+        
+        st.download_button(
+            "📄 Download Summary (JSON)",
+            data=summary_json,
+            file_name=f"scrape_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+            mime="application/json",
+            key=f"{key_prefix}download_summary"
+        )
+        
+        if results["pages"]:
+            pages_csv = pd.DataFrame([
+                {
+                    "URL": p["url"],
+                    "Title": p["title"],
+                    "Category": p["category"],
+                    "Content Length": p["content_length"],
+                    "Routes Found": p["routes_found"]
+                }
+                for p in results["pages"]
+            ]).to_csv(index=False)
+            
+            st.download_button(
+                "📊 Download Pages (CSV)",
+                data=pages_csv,
+                file_name=f"scrape_pages_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                mime="text/csv",
+                key=f"{key_prefix}download_pages_csv"
+            )
 
 
 def compare_with_app():
     """Compare audit results with app's scrape"""
     st.header("🔄 Compare with Main App")
     
-    # Load expected coverage
     expected_file = OUTPUT_DIR / "expected_coverage.json"
     
     if not expected_file.exists():
@@ -618,15 +615,15 @@ def compare_with_app():
     
     expected = json.loads(expected_file.read_text())
     
-    # Load app metadata
     app_metadata_path = st.text_input(
         "Path to app's scrape_metadata.json",
-        value="scrape_metadata.json"
+        value="scrape_metadata.json",
+        key="compare_app_path"
     )
     
     app_file = Path(app_metadata_path)
     
-    if st.button("🔍 Compare", type="primary"):
+    if st.button("🔍 Compare", type="primary", key="btn_compare"):
         if not app_file.exists():
             st.error(f"❌ File not found: {app_metadata_path}")
             return
@@ -635,7 +632,6 @@ def compare_with_app():
         
         st.success("✅ Comparison Complete")
         
-        # Metrics
         col1, col2, col3 = st.columns(3)
         
         expected_pages = expected["expected_minimum_pages"]
@@ -659,7 +655,6 @@ def compare_with_app():
             actual_pages
         )
         
-        # Status
         if coverage_pct >= 95:
             st.success("✅ **EXCELLENT** - Your app is scraping 95%+ of the site!")
         elif coverage_pct >= 80:
@@ -667,7 +662,6 @@ def compare_with_app():
         else:
             st.error("❌ **INCOMPLETE** - Your app is missing significant content.")
         
-        # Detailed comparison
         st.divider()
         st.subheader("Detailed Comparison")
         
@@ -698,9 +692,8 @@ def compare_with_app():
             }
         ])
         
-        st.dataframe(comparison_df, use_container_width=True, hide_index=True)
+        st.dataframe(comparison_df, use_container_width=True, hide_index=True, key="df_comparison")
         
-        # Recommendations
         if coverage_pct < 95:
             st.divider()
             st.subheader("💡 Recommendations")
@@ -734,83 +727,93 @@ with tab_main:
     - Max Pages: {'Unlimited' if max_pages is None else max_pages}
     """)
     
-    col_btn1, col_btn2 = st.columns(2)
+    col_btn1, col_btn2, col_btn3 = st.columns(3)
     
     with col_btn1:
-        if st.button("🚀 Start Full Audit", type="primary", disabled=st.session_state.crawl_running):
-            st.session_state.crawl_running = True
-            
-            # Progress containers
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-            log_container = st.expander("📋 Crawl Log", expanded=True)
-            log_placeholder = log_container.empty()
-            logs = []
-            
-            def update_progress(current, total, url):
-                progress = min(current / total, 1.0)
-                progress_bar.progress(progress)
-                status_text.text(f"Progress: {current}/{total if total else '?'} pages")
-            
-            def log_status(message):
-                logs.append(f"[{datetime.now().strftime('%H:%M:%S')}] {message}")
-                log_placeholder.text("\n".join(logs[-20:]))  # Show last 20 logs
-            
-            # Run audit
-            auditor = SiteAuditor(progress_callback=update_progress, status_callback=log_status)
-            
-            try:
-                results = auditor.crawl_all(max_pages=max_pages, crawl_delay=crawl_delay)
-                st.session_state.audit_results = results
-                
-                progress_bar.progress(1.0)
-                status_text.success("✅ Audit Complete!")
-                
-                # Display results
-                display_results(results)
-                
-            except Exception as e:
-                st.error(f"❌ Error during audit: {e}")
-            
-            finally:
-                auditor.close()
-                st.session_state.crawl_running = False
+        start_full = st.button("🚀 Start Full Audit", type="primary", disabled=st.session_state.crawl_running)
     
     with col_btn2:
-        if st.button("⚡ Quick Test (50 pages)", disabled=st.session_state.crawl_running):
-            st.session_state.crawl_running = True
-            
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-            
-            def update_progress(current, total, url):
-                progress = min(current / total, 1.0)
-                progress_bar.progress(progress)
-                status_text.text(f"Testing: {current}/50 pages")
-            
-            auditor = SiteAuditor(progress_callback=update_progress)
-            
-            try:
-                results = auditor.crawl_all(max_pages=50, crawl_delay=crawl_delay)
-                st.session_state.audit_results = results
-                
-                progress_bar.progress(1.0)
-                status_text.success("✅ Test Complete!")
-                
-                display_results(results)
-                
-            except Exception as e:
-                st.error(f"❌ Error: {e}")
-            
-            finally:
-                auditor.close()
-                st.session_state.crawl_running = False
+        start_quick = st.button("⚡ Quick Test (50 pages)", disabled=st.session_state.crawl_running)
     
-    # Show previous results if available
+    with col_btn3:
+        if st.button("🗑️ Clear Results", disabled=st.session_state.crawl_running):
+            st.session_state.audit_results = None
+            st.session_state.crawl_complete = False
+            st.rerun()
+    
+    # Handle full audit
+    if start_full:
+        st.session_state.crawl_running = True
+        st.session_state.crawl_complete = False
+        
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        log_container = st.expander("📋 Crawl Log", expanded=True)
+        log_placeholder = log_container.empty()
+        logs = []
+        
+        def update_progress(current, total, url):
+            progress = min(current / total, 1.0)
+            progress_bar.progress(progress)
+            status_text.text(f"Progress: {current}/{total if total else '?'} pages | {url[:60]}...")
+        
+        def log_status(message):
+            logs.append(f"[{datetime.now().strftime('%H:%M:%S')}] {message}")
+            log_placeholder.text("\n".join(logs[-20:]))
+        
+        auditor = SiteAuditor(progress_callback=update_progress, status_callback=log_status)
+        
+        try:
+            results = auditor.crawl_all(max_pages=max_pages, crawl_delay=crawl_delay)
+            st.session_state.audit_results = results
+            st.session_state.crawl_complete = True
+            
+            progress_bar.progress(1.0)
+            status_text.success("✅ Audit Complete!")
+            
+        except Exception as e:
+            st.error(f"❌ Error during audit: {e}")
+        
+        finally:
+            auditor.close()
+            st.session_state.crawl_running = False
+            st.rerun()
+    
+    # Handle quick test
+    if start_quick:
+        st.session_state.crawl_running = True
+        st.session_state.crawl_complete = False
+        
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        def update_progress(current, total, url):
+            progress = min(current / total, 1.0)
+            progress_bar.progress(progress)
+            status_text.text(f"Testing: {current}/50 pages")
+        
+        auditor = SiteAuditor(progress_callback=update_progress)
+        
+        try:
+            results = auditor.crawl_all(max_pages=50, crawl_delay=crawl_delay)
+            st.session_state.audit_results = results
+            st.session_state.crawl_complete = True
+            
+            progress_bar.progress(1.0)
+            status_text.success("✅ Test Complete!")
+            
+        except Exception as e:
+            st.error(f"❌ Error: {e}")
+        
+        finally:
+            auditor.close()
+            st.session_state.crawl_running = False
+            st.rerun()
+    
+    # Show results if available (only once!)
     if st.session_state.audit_results and not st.session_state.crawl_running:
         st.divider()
-        st.subheader("📊 Previous Audit Results")
-        display_results(st.session_state.audit_results)
+        display_results(st.session_state.audit_results, key_prefix="main_")
 
 with tab_compare:
     compare_with_app()
