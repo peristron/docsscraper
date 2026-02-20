@@ -381,7 +381,7 @@ def display_results(results):
                 y="Pages",
                 title="Distribution of Pages by Category"
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, key="chart_category_bar")
         
         with col_b:
             st.subheader("Content Size Distribution")
@@ -393,7 +393,7 @@ def display_results(results):
                 title="Page Content Length Distribution",
                 labels={"x": "Content Length (chars)", "y": "Count"}
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, key="chart_content_histogram")
         
         # Top pages
         st.subheader("Top 10 Pages by Content Size")
@@ -410,7 +410,7 @@ def display_results(results):
             for p in top_pages
         ])
         
-        st.dataframe(top_df, use_container_width=True, hide_index=True)
+        st.dataframe(top_df, use_container_width=True, hide_index=True, key="df_top_pages")
     
     with tab2:
         st.header("All Scraped Pages")
@@ -421,7 +421,8 @@ def display_results(results):
         with col_f1:
             selected_category = st.selectbox(
                 "Filter by Category",
-                ["All"] + sorted(results["categories"].keys())
+                ["All"] + sorted(results["categories"].keys()),
+                key="filter_category_pages"
             )
         
         with col_f2:
@@ -429,7 +430,8 @@ def display_results(results):
                 "Minimum Content Size",
                 min_value=0,
                 value=0,
-                step=100
+                step=100,
+                key="filter_min_size"
             )
         
         # Filter pages
@@ -454,7 +456,7 @@ def display_results(results):
             for p in filtered_pages
         ])
         
-        st.dataframe(pages_df, use_container_width=True, hide_index=True, height=400)
+        st.dataframe(pages_df, use_container_width=True, hide_index=True, height=400, key="df_all_pages")
     
     with tab3:
         st.header("API Routes Found")
@@ -486,7 +488,7 @@ def display_results(results):
                     {"Method": method, "Count": count}
                     for method, count in method_counts.items()
                 ])
-                st.dataframe(method_df, hide_index=True)
+                st.dataframe(method_df, hide_index=True, key="df_method_counts")
             
             with col_r2:
                 fig = px.pie(
@@ -495,13 +497,14 @@ def display_results(results):
                     names="Method",
                     title="Routes by HTTP Method"
                 )
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, use_container_width=True, key="chart_method_pie")
             
             # Filter routes
             st.subheader("All Routes")
             selected_method = st.selectbox(
                 "Filter by Method",
-                ["All"] + sorted(method_counts.keys())
+                ["All"] + sorted(method_counts.keys()),
+                key="filter_method_routes"
             )
             
             filtered_routes = all_routes
@@ -509,7 +512,7 @@ def display_results(results):
                 filtered_routes = [r for r in all_routes if r["Method"] == selected_method]
             
             routes_df = pd.DataFrame(filtered_routes)
-            st.dataframe(routes_df, use_container_width=True, hide_index=True, height=400)
+            st.dataframe(routes_df, use_container_width=True, hide_index=True, height=400, key="df_all_routes")
         else:
             st.warning("No API routes found")
     
@@ -525,11 +528,11 @@ def display_results(results):
                     {
                         "URL": f["url"],
                         "Status/Error": f.get("status") or f.get("error", "Unknown"),
-                        "Parent": f.get("parent", "N/A")[:50]
+                        "Parent": f.get("parent", "N/A")[:50] if f.get("parent") else "N/A"
                     }
                     for f in results["failed_urls"]
                 ])
-                st.dataframe(failed_df, use_container_width=True, hide_index=True)
+                st.dataframe(failed_df, use_container_width=True, hide_index=True, key="df_failed")
             else:
                 st.success("No failed URLs!")
         
@@ -543,7 +546,7 @@ def display_results(results):
                     }
                     for s in results["skipped_urls"]
                 ])
-                st.dataframe(skipped_df, use_container_width=True, hide_index=True)
+                st.dataframe(skipped_df, use_container_width=True, hide_index=True, key="df_skipped")
             else:
                 st.info("No skipped URLs")
     
@@ -552,7 +555,7 @@ def display_results(results):
         
         st.write("Save audit results to files for comparison with your main app.")
         
-        if st.button("💾 Save All Reports", type="primary"):
+        if st.button("💾 Save All Reports", type="primary", key="btn_save_reports"):
             with st.spinner("Saving reports..."):
                 saved_files = save_results(results)
                 
@@ -577,7 +580,8 @@ def display_results(results):
                     "📄 Download Summary (JSON)",
                     data=summary_json,
                     file_name=f"scrape_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-                    mime="application/json"
+                    mime="application/json",
+                    key="download_summary"
                 )
                 
                 # Full pages CSV
@@ -596,7 +600,8 @@ def display_results(results):
                     "📊 Download Pages (CSV)",
                     data=pages_csv,
                     file_name=f"scrape_pages_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                    mime="text/csv"
+                    mime="text/csv",
+                    key="download_pages_csv"
                 )
 
 
